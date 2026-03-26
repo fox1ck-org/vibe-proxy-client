@@ -81,3 +81,21 @@ func (c *Client) FindProxyByIP(ctx context.Context, ip string) (*ProxyListItem, 
 
 	return nil, nil
 }
+
+// FindProxyByLabel searches for a proxy with a specific label key=value.
+// Uses the vibe-proxy label filtering: GET /proxies?labels=key:value
+func (c *Client) FindProxyByLabel(ctx context.Context, key, value string) (*ProxyListItem, error) {
+	path := "/api/v1/proxies?labels=" + url.QueryEscape(key+"="+value)
+	resp, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("find proxy by label: %w", err)
+	}
+	result, err := decodeResponse[ProxyListResponse](resp)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Items) > 0 {
+		return &result.Items[0], nil
+	}
+	return nil, nil
+}
