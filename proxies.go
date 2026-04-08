@@ -2,14 +2,16 @@ package vibeproxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 )
 
-// ProxyListItem represents a proxy returned from the List API.
+// ProxyListItem represents a proxy returned from the List / find-by-ip APIs.
 type ProxyListItem struct {
 	ID           uuid.UUID         `json:"id"`
 	Name         string            `json:"name"`
@@ -21,6 +23,7 @@ type ProxyListItem struct {
 	City         *string           `json:"city,omitempty"`
 	ASN          *int              `json:"asn,omitempty"`
 	ISP          *string           `json:"isp,omitempty"`
+	ExternalIP   *string           `json:"externalIp,omitempty"`
 	Labels       map[string]string `json:"labels,omitempty"`
 	Endpoints    []ProxyEndpoint   `json:"endpoints,omitempty"`
 }
@@ -59,43 +62,40 @@ func (c *Client) ListProxies(ctx context.Context, search string) ([]ProxyListIte
 	return result.Items, nil
 }
 
-// FindProxyByIP searches for a proxy whose host matches the given IP address.
-// Returns the first match or nil if no proxy is found.
-func (c *Client) FindProxyByIP(ctx context.Context, ip string) (*ProxyListItem, error) {
-	proxies, err := c.ListProxies(ctx, ip)
-	if err != nil {
-		return nil, err
+// FindProxyByObservedIP resolves an IP to the proxy whose exit gateway that
+// IP most recently belonged to. This is the single, canonical lookup used
+// by callers (e.g. vibe-fb's extension-driven account registration) to
+// match a browser-observed public IP back to a managed proxy.
+//
+// Under the hood the server checks the proxy's current external_ip column
+// first, then falls back to a time-windowed scan of proxy_ip_observation
+// so that brief rotation races between sampling and lookup don't break
+// the match. `within` is how far back the server is allowed to search;
+// it is clamped server-side to a maximum bound (default 1h).
+//
+// Returns (nil, nil) if no proxy matched within the window.
+func (c *Client) FindProxyByObservedIP(ctx context.Context, ip string, within time.Duration) (*ProxyListItem, error) {
+	if ip == "" {
+		return nil, fmt.Errorf("ip is required")
+	}
+	if within <= 0 {
+		return nil, fmt.Errorf("within must be positive")
 	}
 
-	// Exact host match (search is ILIKE, so filter for exact)
-	for i, p := range proxies {
-		if p.Host == ip {
-			return &proxies[i], nil
-		}
-	}
-
-	// If no exact match, return first result (host may contain the IP as substring)
-	if len(proxies) > 0 {
-		return &proxies[0], nil
-	}
-
-	return nil, nil
-}
-
-// FindProxyByLabel searches for a proxy with a specific label key=value.
-// Uses the vibe-proxy label filtering: GET /proxies?labels=key:value
-func (c *Client) FindProxyByLabel(ctx context.Context, key, value string) (*ProxyListItem, error) {
-	path := "/api/v1/proxies?labels=" + url.QueryEscape(key+"="+value)
+	path := "/api/v1/proxies/find-by-ip?ip=" + url.QueryEscape(ip) + "&within=" + url.QueryEscape(within.String())
 	resp, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("find proxy by label: %w", err)
+		return nil, fmt.Errorf("find proxy by observed ip: %w", err)
 	}
-	result, err := decodeResponse[ProxyListResponse](resp)
+
+	result, err := decodeResponse[ProxyListItem](resp)
 	if err != nil {
+		// 404 is the "no proxy found" signal — surface as (nil, nil) so
+		// callers can distinguish it from a genuine transport error.
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	if len(result.Items) > 0 {
-		return &result.Items[0], nil
-	}
-	return nil, nil
+	return result, nil
 }
