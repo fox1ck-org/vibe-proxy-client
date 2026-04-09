@@ -45,12 +45,13 @@ type Lease struct {
 
 // AcquireLeaseInput is the request body for acquiring a lease.
 type AcquireLeaseInput struct {
-	PoolID            uuid.UUID         `json:"poolId"`
-	ConsumerID        string            `json:"consumerId"`
-	ConsumerMeta      map[string]string `json:"consumerMeta,omitempty"`
-	PreferredProtocol *Protocol         `json:"preferredProtocol,omitempty"`
-	TTLSeconds        *int              `json:"ttlSeconds,omitempty"`
-	Sticky            bool              `json:"sticky"`
+	PoolID             uuid.UUID         `json:"poolId"`
+	ConsumerID         string            `json:"consumerId"`
+	ConsumerMeta       map[string]string `json:"consumerMeta,omitempty"`
+	PreferredProtocol  *Protocol         `json:"preferredProtocol,omitempty"`
+	PreferredProxyID   *uuid.UUID        `json:"preferredProxyId,omitempty"`
+	TTLSeconds         *int              `json:"ttlSeconds,omitempty"`
+	Sticky             bool              `json:"sticky"`
 }
 
 // LeaseResponse is the response from acquiring or getting a lease.
