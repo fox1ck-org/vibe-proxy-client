@@ -127,6 +127,17 @@ func decodeResponse[T any](resp *http.Response) (*T, error) {
 func parseAPIError(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 
+	// When the server classified the error with a machine-readable `reason`,
+	// preserve the full structured error (status + reason + message) so callers
+	// can branch on the cause. This must run BEFORE the bare-sentinel mapping
+	// below, which would otherwise collapse a reason-carrying 404/409 into an
+	// opaque ErrNotFound/ErrPoolFull.
+	var apiErr APIError
+	if json.Unmarshal(body, &apiErr) == nil && apiErr.Reason != "" {
+		apiErr.StatusCode = resp.StatusCode
+		return &apiErr
+	}
+
 	switch resp.StatusCode {
 	case http.StatusNotFound:
 		return ErrNotFound
@@ -136,8 +147,7 @@ func parseAPIError(resp *http.Response) error {
 		return ErrPoolFull
 	}
 
-	var apiErr APIError
-	if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
+	if apiErr.Message != "" {
 		apiErr.StatusCode = resp.StatusCode
 		return &apiErr
 	}

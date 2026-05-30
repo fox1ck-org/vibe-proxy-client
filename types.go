@@ -52,6 +52,13 @@ type AcquireLeaseInput struct {
 	PreferredProxyID   *uuid.UUID        `json:"preferredProxyId,omitempty"`
 	TTLSeconds         *int              `json:"ttlSeconds,omitempty"`
 	Sticky             bool              `json:"sticky"`
+
+	// AllowUnhealthyPreferred lets a pinned PreferredProxyID be leased even
+	// when its cluster-side health summary is 'failed', provided it is still
+	// status='enabled'. Set it only when you hold live, out-of-band evidence
+	// the proxy works (e.g. an observed exit IP); it never overrides a
+	// disabled/banned or missing proxy.
+	AllowUnhealthyPreferred bool `json:"allowUnhealthyPreferred,omitempty"`
 }
 
 // LeaseResponse is the response from acquiring or getting a lease.
@@ -100,8 +107,21 @@ type Pool struct {
 type APIError struct {
 	StatusCode int
 	Message    string `json:"error"`
+	// Reason is a machine-readable cause set by the server for errors that
+	// need differentiated handling (e.g. preferred-proxy lease rejections:
+	// "proxy_disabled", "proxy_unhealthy", "proxy_not_found"). Empty when the
+	// server didn't classify the error.
+	Reason string `json:"reason"`
 }
 
 func (e *APIError) Error() string {
 	return e.Message
 }
+
+// Lease-rejection reason codes emitted by vibe-proxy on a pinned
+// PreferredProxyID that can't be leased. Match against APIError.Reason.
+const (
+	ReasonProxyDisabled  = "proxy_disabled"
+	ReasonProxyUnhealthy = "proxy_unhealthy"
+	ReasonProxyNotFound  = "proxy_not_found"
+)
