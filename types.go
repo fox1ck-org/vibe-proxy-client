@@ -45,13 +45,20 @@ type Lease struct {
 
 // AcquireLeaseInput is the request body for acquiring a lease.
 type AcquireLeaseInput struct {
-	PoolID             uuid.UUID         `json:"poolId"`
-	ConsumerID         string            `json:"consumerId"`
-	ConsumerMeta       map[string]string `json:"consumerMeta,omitempty"`
-	PreferredProtocol  *Protocol         `json:"preferredProtocol,omitempty"`
-	PreferredProxyID   *uuid.UUID        `json:"preferredProxyId,omitempty"`
-	TTLSeconds         *int              `json:"ttlSeconds,omitempty"`
-	Sticky             bool              `json:"sticky"`
+	PoolID            uuid.UUID         `json:"poolId"`
+	ConsumerID        string            `json:"consumerId"`
+	ConsumerMeta      map[string]string `json:"consumerMeta,omitempty"`
+	PreferredProtocol *Protocol         `json:"preferredProtocol,omitempty"`
+	PreferredProxyID  *uuid.UUID        `json:"preferredProxyId,omitempty"`
+	TTLSeconds        *int              `json:"ttlSeconds,omitempty"`
+	Sticky            bool              `json:"sticky"`
+
+	// Country / City narrow an unpinned lease to a geo within a multi-country
+	// pool (case-insensitive; empty means "any"). Ignored when PreferredProxyID
+	// is set — the pin wins. This is the first-class way to ask a pool for
+	// "a UA proxy" without knowing which specific proxy to pin.
+	Country *string `json:"country,omitempty"`
+	City    *string `json:"city,omitempty"`
 
 	// AllowUnhealthyPreferred lets a pinned PreferredProxyID be leased even
 	// when its cluster-side health summary is 'failed', provided it is still
