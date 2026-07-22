@@ -43,6 +43,69 @@ type ProxyListResponse struct {
 	TotalCount int             `json:"totalCount"`
 }
 
+// Rotation types accepted by CreateProxyInput.RotationType.
+const (
+	RotationStatic         = "static"
+	RotationRotating       = "rotating"
+	RotationStickyRotating = "sticky_rotating"
+)
+
+// Credential auth methods accepted by CreateCredentialInput.AuthMethod.
+const (
+	AuthMethodUserPass    = "userpass"
+	AuthMethodIPWhitelist = "ip_whitelist"
+	AuthMethodToken       = "token"
+	AuthMethodNone        = "none"
+)
+
+// CreateEndpointInput is a proxy endpoint (protocol + port) to seed on creation.
+type CreateEndpointInput struct {
+	Protocol  Protocol `json:"protocol"`
+	Port      int      `json:"port"`
+	IsDefault bool     `json:"isDefault"`
+}
+
+// CreateCredentialInput is a proxy credential to seed on creation.
+type CreateCredentialInput struct {
+	AuthMethod string     `json:"authMethod"`
+	Username   string     `json:"username,omitempty"`
+	Password   string     `json:"password,omitempty"`
+	AllowedIPs []string   `json:"allowedIps,omitempty"`
+	Token      string     `json:"token,omitempty"`
+	IsPrimary  bool       `json:"isPrimary"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+}
+
+// CreateProxyInput is the request body for registering a proxy, with its
+// endpoints, credentials, and classification labels in a single call. Mirrors
+// vibe-proxy's domain.CreateProxyInput.
+type CreateProxyInput struct {
+	Name         string                  `json:"name"`
+	Host         string                  `json:"host"`
+	RotationType string                  `json:"rotationType"`
+	CountryCode  *string                 `json:"countryCode,omitempty"`
+	Region       *string                 `json:"region,omitempty"`
+	City         *string                 `json:"city,omitempty"`
+	ExternalID   *string                 `json:"externalId,omitempty"`
+	ExpiresAt    *time.Time              `json:"expiresAt,omitempty"`
+	Endpoints    []CreateEndpointInput   `json:"endpoints"`
+	Credentials  []CreateCredentialInput `json:"credentials"`
+	Labels       map[string]string       `json:"labels,omitempty"`
+}
+
+// CreateProxy registers a new proxy (with its endpoints, credentials, and
+// labels) via POST /api/v1/proxies and returns the created proxy. Callers that
+// bundle a dedicated proxy with an account (e.g. vibe-accounts agency imports)
+// use this to hand ownership of the proxy's lifecycle to vibe-proxy, keeping
+// credentials out of their own store.
+func (c *Client) CreateProxy(ctx context.Context, input CreateProxyInput) (*ProxyListItem, error) {
+	resp, err := c.do(ctx, http.MethodPost, "/api/v1/proxies", input)
+	if err != nil {
+		return nil, fmt.Errorf("create proxy: %w", err)
+	}
+	return decodeResponse[ProxyListItem](resp)
+}
+
 // ListProxies retrieves proxies, optionally filtered by search term.
 // The search parameter matches against proxy name and host (IP address).
 func (c *Client) ListProxies(ctx context.Context, search string) ([]ProxyListItem, error) {
