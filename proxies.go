@@ -13,19 +13,22 @@ import (
 
 // ProxyListItem represents a proxy returned from the List / find-by-ip APIs.
 type ProxyListItem struct {
-	ID           uuid.UUID         `json:"id"`
-	Name         string            `json:"name"`
-	Host         string            `json:"host"`
-	Status       string            `json:"status"`
-	RotationType string            `json:"rotationType"`
-	CountryCode  *string           `json:"countryCode,omitempty"`
-	Region       *string           `json:"region,omitempty"`
-	City         *string           `json:"city,omitempty"`
-	ASN          *int              `json:"asn,omitempty"`
-	ISP          *string           `json:"isp,omitempty"`
-	ExternalIP   *string           `json:"externalIp,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	Endpoints    []ProxyEndpoint   `json:"endpoints,omitempty"`
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	Host         string    `json:"host"`
+	Status       string    `json:"status"`
+	RotationType string    `json:"rotationType"`
+	// ConnectionType is the declared network class ("mobile", "residential",
+	// "datacenter", "isp", or "unknown" while undeclared).
+	ConnectionType string            `json:"connectionType,omitempty"`
+	CountryCode    *string           `json:"countryCode,omitempty"`
+	Region         *string           `json:"region,omitempty"`
+	City           *string           `json:"city,omitempty"`
+	ASN            *int              `json:"asn,omitempty"`
+	ISP            *string           `json:"isp,omitempty"`
+	ExternalIP     *string           `json:"externalIp,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Endpoints      []ProxyEndpoint   `json:"endpoints,omitempty"`
 }
 
 // ProxyEndpoint represents a proxy endpoint (protocol + port).
@@ -80,17 +83,21 @@ type CreateCredentialInput struct {
 // endpoints, credentials, and classification labels in a single call. Mirrors
 // vibe-proxy's domain.CreateProxyInput.
 type CreateProxyInput struct {
-	Name         string                  `json:"name"`
-	Host         string                  `json:"host"`
-	RotationType string                  `json:"rotationType"`
-	CountryCode  *string                 `json:"countryCode,omitempty"`
-	Region       *string                 `json:"region,omitempty"`
-	City         *string                 `json:"city,omitempty"`
-	ExternalID   *string                 `json:"externalId,omitempty"`
-	ExpiresAt    *time.Time              `json:"expiresAt,omitempty"`
-	Endpoints    []CreateEndpointInput   `json:"endpoints"`
-	Credentials  []CreateCredentialInput `json:"credentials"`
-	Labels       map[string]string       `json:"labels,omitempty"`
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	RotationType string `json:"rotationType"`
+	// ConnectionType declares the network class when the caller knows it
+	// (e.g. vibe-accounts registering a bundled mobile proxy). Omitted →
+	// 'unknown', later self-healed from intelligence server-side.
+	ConnectionType *ConnectionType         `json:"connectionType,omitempty"`
+	CountryCode    *string                 `json:"countryCode,omitempty"`
+	Region         *string                 `json:"region,omitempty"`
+	City           *string                 `json:"city,omitempty"`
+	ExternalID     *string                 `json:"externalId,omitempty"`
+	ExpiresAt      *time.Time              `json:"expiresAt,omitempty"`
+	Endpoints      []CreateEndpointInput   `json:"endpoints"`
+	Credentials    []CreateCredentialInput `json:"credentials"`
+	Labels         map[string]string       `json:"labels,omitempty"`
 }
 
 // CreateProxy registers a new proxy (with its endpoints, credentials, and

@@ -17,9 +17,10 @@ var (
 )
 
 // LeaseRejectionReason extracts the machine-readable reason from a vibe-proxy
-// API error (one of the Reason* constants: proxy_disabled / proxy_unhealthy /
-// proxy_not_found), or "" if err is nil or not a classified *APIError. Use
-// this instead of sniffing err.Error() substrings.
+// API error (one of the Reason* constants: proxy_disabled / proxy_expired /
+// proxy_unhealthy / proxy_not_found / no_matching_proxies), or "" if err is
+// nil or not a classified *APIError. Use this instead of sniffing err.Error()
+// substrings.
 func LeaseRejectionReason(err error) string {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {

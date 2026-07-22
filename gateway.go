@@ -6,9 +6,9 @@ import (
 )
 
 const (
-	DefaultGatewayHTTPPort  = 3128
+	DefaultGatewayHTTPPort   = 3128
 	DefaultGatewaySocks5Port = 1080
-	DefaultGatewayHost      = "vibe-proxy-gateway.vibe-proxy.svc.cluster.local"
+	DefaultGatewayHost       = "vibe-proxy-gateway.vibe-proxy.svc.cluster.local"
 )
 
 // GatewayProxyURL returns an HTTP proxy URL for the gateway that encodes the

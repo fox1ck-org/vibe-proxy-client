@@ -12,28 +12,34 @@ import (
 
 // ProxyRequest is a demand-side ask routed to an operator for fulfillment.
 type ProxyRequest struct {
-	ID               uuid.UUID  `json:"id"`
-	RequesterID      string     `json:"requesterId"`
-	RequesterEmail   string     `json:"requesterEmail"`
-	TargetApp        string     `json:"targetApp"`
-	Countries        []string   `json:"countries"`
-	Quantity         int        `json:"quantity"`
-	VendorPreference *string    `json:"vendorPreference,omitempty"`
-	Notes            string     `json:"notes"`
-	Status           string     `json:"status"`
-	ClaimedBy        *string    `json:"claimedBy,omitempty"`
-	TargetPoolID     *uuid.UUID `json:"targetPoolId,omitempty"`
-	CreatedAt        time.Time  `json:"createdAt"`
-	UpdatedAt        time.Time  `json:"updatedAt"`
+	ID               uuid.UUID       `json:"id"`
+	RequesterID      string          `json:"requesterId"`
+	RequesterEmail   string          `json:"requesterEmail"`
+	TargetApp        string          `json:"targetApp"`
+	Countries        []string        `json:"countries"`
+	Quantity         int             `json:"quantity"`
+	Protocol         *Protocol       `json:"protocol,omitempty"`
+	ConnectionType   *ConnectionType `json:"connectionType,omitempty"`
+	VendorPreference *string         `json:"vendorPreference,omitempty"`
+	Notes            string          `json:"notes"`
+	Status           string          `json:"status"`
+	ClaimedBy        *string         `json:"claimedBy,omitempty"`
+	TargetPoolID     *uuid.UUID      `json:"targetPoolId,omitempty"`
+	CreatedAt        time.Time       `json:"createdAt"`
+	UpdatedAt        time.Time       `json:"updatedAt"`
 }
 
-// CreateRequestInput is the payload for opening a proxy request.
+// CreateRequestInput is the payload for opening a proxy request. Protocol and
+// ConnectionType declare what class of proxies is needed (nil = any) — the
+// operator's purchase flow prefills from them.
 type CreateRequestInput struct {
-	TargetApp        string   `json:"targetApp"`
-	Countries        []string `json:"countries"`
-	Quantity         int      `json:"quantity"`
-	VendorPreference *string  `json:"vendorPreference,omitempty"`
-	Notes            string   `json:"notes"`
+	TargetApp        string          `json:"targetApp"`
+	Countries        []string        `json:"countries"`
+	Quantity         int             `json:"quantity"`
+	Protocol         *Protocol       `json:"protocol,omitempty"`
+	ConnectionType   *ConnectionType `json:"connectionType,omitempty"`
+	VendorPreference *string         `json:"vendorPreference,omitempty"`
+	Notes            string          `json:"notes"`
 }
 
 // CreateRequest opens a new proxy request. Requires an authenticated identity

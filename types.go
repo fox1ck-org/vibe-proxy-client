@@ -26,6 +26,19 @@ const (
 	ProtocolSOCKS5 Protocol = "socks5"
 )
 
+// ConnectionType is the declared network class of a proxy — a first-class
+// allocation axis (distinct from the intelligence-observed ipType). These are
+// the requestable values; proxies with an undeclared ('unknown') class never
+// match a ConnectionType filter.
+type ConnectionType string
+
+const (
+	ConnectionMobile      ConnectionType = "mobile"
+	ConnectionResidential ConnectionType = "residential"
+	ConnectionDatacenter  ConnectionType = "datacenter"
+	ConnectionISP         ConnectionType = "isp"
+)
+
 // Lease represents an active or historical proxy lease.
 type Lease struct {
 	ID           uuid.UUID         `json:"id"`
@@ -44,19 +57,35 @@ type Lease struct {
 }
 
 // AcquireLeaseInput is the request body for acquiring a lease.
+//
+// Filter axes (Protocol, ConnectionType, Country, City) narrow an unpinned
+// lease's candidate set; ALL set axes must match. Zero matches → 409 with
+// reason ReasonNoMatchingProxies — never a silent wrong-class allocation.
+// A PreferredProxyID pin bypasses candidate filtering (the pin wins), except
+// Protocol, which still gates endpoint selection on the pinned proxy.
+// An idempotent re-acquire returns the consumer's existing active lease
+// WITHOUT re-checking filters; release-then-acquire to change them.
 type AcquireLeaseInput struct {
-	PoolID            uuid.UUID         `json:"poolId"`
-	ConsumerID        string            `json:"consumerId"`
-	ConsumerMeta      map[string]string `json:"consumerMeta,omitempty"`
-	PreferredProtocol *Protocol         `json:"preferredProtocol,omitempty"`
-	PreferredProxyID  *uuid.UUID        `json:"preferredProxyId,omitempty"`
-	TTLSeconds        *int              `json:"ttlSeconds,omitempty"`
-	Sticky            bool              `json:"sticky"`
+	PoolID           uuid.UUID         `json:"poolId"`
+	ConsumerID       string            `json:"consumerId"`
+	ConsumerMeta     map[string]string `json:"consumerMeta,omitempty"`
+	PreferredProxyID *uuid.UUID        `json:"preferredProxyId,omitempty"`
+	TTLSeconds       *int              `json:"ttlSeconds,omitempty"`
+	Sticky           bool              `json:"sticky"`
 
-	// Country / City narrow an unpinned lease to a geo within a multi-country
-	// pool (case-insensitive; empty means "any"). Ignored when PreferredProxyID
-	// is set — the pin wins. This is the first-class way to ask a pool for
-	// "a UA proxy" without knowing which specific proxy to pin.
+	// Protocol is a HARD filter: the lease lands on an endpoint of exactly
+	// this protocol, and only proxies exposing one are eligible. There is no
+	// soft preference — ask for socks5, get socks5 or a clean rejection.
+	Protocol *Protocol `json:"protocol,omitempty"`
+
+	// ConnectionType narrows to the declared network class (mobile /
+	// residential / datacenter / isp). How a consumer that needs strictly
+	// mobile proxies (e.g. spy) expresses it.
+	ConnectionType *ConnectionType `json:"connectionType,omitempty"`
+
+	// Country / City narrow by geo (case-insensitive; empty means "any").
+	// This is the first-class way to ask a pool for "a UA proxy" without
+	// knowing which specific proxy to pin.
 	Country *string `json:"country,omitempty"`
 	City    *string `json:"city,omitempty"`
 
@@ -125,10 +154,19 @@ func (e *APIError) Error() string {
 	return e.Message
 }
 
-// Lease-rejection reason codes emitted by vibe-proxy on a pinned
-// PreferredProxyID that can't be leased. Match against APIError.Reason.
+// Lease-rejection reason codes emitted by vibe-proxy. Match against
+// APIError.Reason (via LeaseRejectionReason), never the error string.
 const (
+	// Pinned PreferredProxyID that can't be leased:
 	ReasonProxyDisabled  = "proxy_disabled"
+	ReasonProxyExpired   = "proxy_expired"
 	ReasonProxyUnhealthy = "proxy_unhealthy"
 	ReasonProxyNotFound  = "proxy_not_found"
+
+	// ReasonNoMatchingProxies: the pool has eligible proxies but none match
+	// the requested filter axes (or a pinned proxy lacks the requested
+	// protocol endpoint). Distinct from a capacity 409 (pool full), which
+	// carries no reason. Typical handling: relax filters or open a
+	// CreateRequest for proxies of that class.
+	ReasonNoMatchingProxies = "no_matching_proxies"
 )
