@@ -86,9 +86,8 @@ type CreateProxyInput struct {
 	Name         string `json:"name"`
 	Host         string `json:"host"`
 	RotationType string `json:"rotationType"`
-	// ConnectionType declares the network class when the caller knows it
-	// (e.g. vibe-accounts registering a bundled mobile proxy). Omitted →
-	// 'unknown', later self-healed from intelligence server-side.
+	// ConnectionType declares the network class when the caller knows it.
+	// Omitted → 'unknown', later self-healed from intelligence server-side.
 	ConnectionType *ConnectionType         `json:"connectionType,omitempty"`
 	CountryCode    *string                 `json:"countryCode,omitempty"`
 	Region         *string                 `json:"region,omitempty"`

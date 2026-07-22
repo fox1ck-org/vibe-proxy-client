@@ -79,8 +79,7 @@ type AcquireLeaseInput struct {
 	Protocol *Protocol `json:"protocol,omitempty"`
 
 	// ConnectionType narrows to the declared network class (mobile /
-	// residential / datacenter / isp). How a consumer that needs strictly
-	// mobile proxies (e.g. spy) expresses it.
+	// residential / datacenter / isp). Nil = any class.
 	ConnectionType *ConnectionType `json:"connectionType,omitempty"`
 
 	// Country / City narrow by geo (case-insensitive; empty means "any").
