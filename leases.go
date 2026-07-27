@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -11,11 +12,30 @@ import (
 // AcquireLease requests a proxy lease from a pool.
 // For sticky allocation, set input.Sticky = true and use a stable ConsumerID.
 func (c *Client) AcquireLease(ctx context.Context, input AcquireLeaseInput) (*LeaseResponse, error) {
+	if err := input.validate(); err != nil {
+		return nil, fmt.Errorf("acquire lease: %w", err)
+	}
 	resp, err := c.do(ctx, http.MethodPost, "/api/v1/leases", input)
 	if err != nil {
 		return nil, fmt.Errorf("acquire lease: %w", err)
 	}
 	return decodeResponse[LeaseResponse](resp)
+}
+
+// validate rejects the one request vibe-proxy is CERTAIN to answer with a 400, so
+// a caller bug costs one error return instead of an unbounded stream of doomed
+// HTTP round-trips.
+//
+// It mirrors the server's own precondition and nothing more. A zero PoolID is
+// deliberately NOT checked here: the server resolves the pool and answers 404 /
+// no_matching_proxies, and callers read that classification off the response —
+// short-circuiting it locally would swallow a rejection reason the caller acts on.
+// Anything the server might accept, or reject with a reason, stays the server's call.
+func (i AcquireLeaseInput) validate() error {
+	if strings.TrimSpace(i.ConsumerID) == "" {
+		return fmt.Errorf("%w: consumerId is required", ErrInvalidInput)
+	}
+	return nil
 }
 
 // GetLease retrieves a lease by ID with connection details.
