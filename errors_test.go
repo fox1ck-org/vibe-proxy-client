@@ -24,7 +24,8 @@ func TestAcquireLease_ReasonPreserved(t *testing.T) {
 		{"expired", http.StatusConflict, `{"error":"preferred proxy x is expired","reason":"proxy_expired"}`, ReasonProxyExpired},
 		{"unhealthy", http.StatusConflict, `{"error":"preferred proxy x is unhealthy","reason":"proxy_unhealthy"}`, ReasonProxyUnhealthy},
 		{"not_found", http.StatusNotFound, `{"error":"preferred proxy x not found","reason":"proxy_not_found"}`, ReasonProxyNotFound},
-		{"no_matching", http.StatusConflict, `{"error":"no eligible proxies in pool p for filters (connectionType=mobile)","reason":"no_matching_proxies"}`, ReasonNoMatchingProxies},
+		{"no_matching", http.StatusConflict, `{"error":"no proxies in pool p match filters (connectionType=mobile)","reason":"no_matching_proxies"}`, ReasonNoMatchingProxies},
+		{"no_healthy", http.StatusConflict, `{"error":"3 proxies in pool p match filters (connectionType=mobile) but none are healthy right now","reason":"no_healthy_proxies"}`, ReasonNoHealthyProxies},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

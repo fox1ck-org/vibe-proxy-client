@@ -162,10 +162,19 @@ const (
 	ReasonProxyUnhealthy = "proxy_unhealthy"
 	ReasonProxyNotFound  = "proxy_not_found"
 
-	// ReasonNoMatchingProxies: the pool has eligible proxies but none match
-	// the requested filter axes (or a pinned proxy lacks the requested
-	// protocol endpoint). Distinct from a capacity 409 (pool full), which
-	// carries no reason. Typical handling: relax filters or open a
-	// CreateRequest for proxies of that class.
+	// ReasonNoMatchingProxies: the pool holds NO proxy of the requested shape
+	// at all — nothing matches the filter axes even ignoring health, the pool
+	// is empty, or a pinned proxy lacks the requested protocol endpoint.
+	// Distinct from a capacity 409 (pool full), which carries no reason.
+	// This is the ONE reason that means "buy/add proxies": relax the filters
+	// or open a CreateRequest for proxies of that class.
 	ReasonNoMatchingProxies = "no_matching_proxies"
+
+	// ReasonNoHealthyProxies: proxies of exactly the requested shape DO exist
+	// in the pool and were dropped because their health is failed. Buying more
+	// cannot fix this — it is a transient supply outage (or a probe that has
+	// gone blind, as on 2026-07-27). Handle by retrying later; do NOT open a
+	// CreateRequest, or you will pile up purchase requests for proxies you
+	// already own.
+	ReasonNoHealthyProxies = "no_healthy_proxies"
 )
