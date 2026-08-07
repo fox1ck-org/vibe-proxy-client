@@ -102,21 +102,42 @@ type LeaseResponse struct {
 	Connection ConnectionInfo `json:"connection"`
 }
 
-// ConnectionInfo contains the connection details for a leased proxy.
+// ConnectionInfo is WHERE TO DIAL plus WHO WE LOOK LIKE — two different things.
+//
+// Host/Port/Protocol/credentials are the address to connect to. For a pool
+// routed через gateway (`routing_mode='gateway'`) это адрес gateway и
+// удостоверение аренды, а не апстрим — трафик всё равно выходит через тот же
+// прокси, но байты по дороге считаются.
+//
+// ExternalIP is the identity of the exit — the proxy's observed IP — and it does
+// NOT move with the route. Anything that cares about identity (anti-detect
+// profile, аккаунт, привязанный к IP) must read ExternalIP. Reading Host for
+// that worked только пока адрес подключения совпадал с апстримом.
 type ConnectionInfo struct {
-	Host     string  `json:"host"`
-	Port     int     `json:"port"`
-	Protocol string  `json:"protocol"`
-	Username *string `json:"username,omitempty"`
-	Password *string `json:"password,omitempty"`
-	Token    *string `json:"token,omitempty"`
-	ProxyURL string  `json:"proxyUrl"`
+	Host       string  `json:"host"`
+	Port       int     `json:"port"`
+	Protocol   string  `json:"protocol"`
+	Username   *string `json:"username,omitempty"`
+	Password   *string `json:"password,omitempty"`
+	Token      *string `json:"token,omitempty"`
+	ProxyURL   string  `json:"proxyUrl"`
+	ExternalIP *string `json:"externalIp,omitempty"`
 }
 
 // RenewLeaseInput is the request body for renewing a lease.
 type RenewLeaseInput struct {
 	TTLSeconds *int `json:"ttlSeconds,omitempty"`
 }
+
+// RoutingMode says HOW a pool's traffic reaches the upstream proxy: `direct`
+// (аренда отдаёт адрес апстрима) или `gateway` (адрес vibe-proxy-gateway,
+// который чейнит на тот же апстрим и считает байты).
+type RoutingMode string
+
+const (
+	RoutingDirect  RoutingMode = "direct"
+	RoutingGateway RoutingMode = "gateway"
+)
 
 // Pool represents a proxy pool configuration.
 type Pool struct {
@@ -131,6 +152,7 @@ type Pool struct {
 	DefaultLeaseTTLSec   int               `json:"defaultLeaseTtlSec"`
 	MaxLeaseTTLSec       int               `json:"maxLeaseTtlSec"`
 	StickyTTLSec         *int              `json:"stickyTtlSec,omitempty"`
+	RoutingMode          RoutingMode       `json:"routingMode,omitempty"`
 	Status               string            `json:"status"`
 	CreatedAt            time.Time         `json:"createdAt"`
 	UpdatedAt            time.Time         `json:"updatedAt"`
