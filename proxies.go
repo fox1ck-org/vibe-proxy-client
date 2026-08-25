@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +47,107 @@ type ProxyEndpoint struct {
 type ProxyListResponse struct {
 	Items      []ProxyListItem `json:"items"`
 	TotalCount int             `json:"totalCount"`
+}
+
+// Proxy is a proxy with the two lifecycle facts a chooser needs on top of the
+// list shape.
+//
+// Both matter to whoever is picking. An expired proxy is deleted by
+// vibe-proxy's next sweep, so attaching one hands an account a proxy that
+// vanishes; and HealthStatus is EFFECTIVE health — vibe-proxy reports a stale
+// summary as "unknown" rather than letting a frozen verdict pass for a live one.
+type Proxy struct {
+	ProxyListItem
+	ExpiresAt    *time.Time `json:"expiresAt,omitempty"`
+	HealthStatus *string    `json:"healthStatus,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
+}
+
+// Expired reports whether the provider's term has already run out.
+func (p Proxy) Expired(now time.Time) bool {
+	return p.ExpiresAt != nil && !p.ExpiresAt.After(now)
+}
+
+// Provider is who it was bought from, from vibe-proxy's classification label.
+func (p Proxy) Provider() string { return p.Labels["provider"] }
+
+// DefaultEndpoint picks the endpoint a browser can actually use.
+//
+// HTTP is preferred over SOCKS deliberately: Chromium accepts an authenticated
+// SOCKS5 proxy and then fails every navigation with ERR_NO_SUPPORTED_PROXIES.
+func DefaultEndpoint(p Proxy) (protocol string, port int, ok bool) {
+	var fallback *ProxyEndpoint
+	for i := range p.Endpoints {
+		e := &p.Endpoints[i]
+		switch strings.ToLower(e.Protocol) {
+		case "http", "https":
+			if e.IsDefault {
+				return e.Protocol, e.Port, true
+			}
+			if fallback == nil || !strings.EqualFold(fallback.Protocol, "http") {
+				fallback = e
+			}
+		default:
+			if fallback == nil {
+				fallback = e
+			}
+		}
+	}
+	if fallback == nil {
+		return "", 0, false
+	}
+	return fallback.Protocol, fallback.Port, true
+}
+
+// ListProxiesInput narrows a listing. Every set axis is ANDed server-side.
+type ListProxiesInput struct {
+	// Search matches proxy name and host.
+	Search string
+	// CountryCode is the ISO-3166 alpha-2 geo filter, case-insensitive.
+	CountryCode string
+	// Status filters by lifecycle state ("enabled" / "disabled" / "banned").
+	Status string
+	// Labels narrows to proxies carrying every key=value. vibe-proxy stamps
+	// request_id on the proxies a fulfilled request produced, which is the ONLY
+	// way to learn what a request turned into — the request itself never names
+	// them, so a purchase whose response was lost is only recoverable this way.
+	Labels map[string]string
+	Limit  int
+	// Sort/Order are passed through verbatim ("created_at" + "desc" puts the
+	// proxy somebody just bought where they expect to find it).
+	Sort  string
+	Order string
+}
+
+func (in ListProxiesInput) query() url.Values {
+	q := url.Values{}
+	if in.Search != "" {
+		q.Set("search", in.Search)
+	}
+	if in.CountryCode != "" {
+		q.Set("country_code", strings.ToUpper(in.CountryCode))
+	}
+	if in.Status != "" {
+		q.Set("status", in.Status)
+	}
+	if len(in.Labels) > 0 {
+		pairs := make([]string, 0, len(in.Labels))
+		for k, v := range in.Labels {
+			pairs = append(pairs, k+"="+v)
+		}
+		sort.Strings(pairs)
+		q.Set("labels", strings.Join(pairs, ","))
+	}
+	if in.Limit > 0 {
+		q.Set("limit", strconv.Itoa(in.Limit))
+	}
+	if in.Sort != "" {
+		q.Set("sort", in.Sort)
+	}
+	if in.Order != "" {
+		q.Set("order", in.Order)
+	}
+	return q
 }
 
 // Rotation types accepted by CreateProxyInput.RotationType.
@@ -112,23 +216,37 @@ func (c *Client) CreateProxy(ctx context.Context, input CreateProxyInput) (*Prox
 	return decodeResponse[ProxyListItem](resp)
 }
 
-// ListProxies retrieves proxies, optionally filtered by search term.
-// The search parameter matches against proxy name and host (IP address).
-func (c *Client) ListProxies(ctx context.Context, search string) ([]ProxyListItem, error) {
+// ListProxies retrieves proxies matching every set filter.
+//
+// vibe-proxy has no per-tenant view of proxies, so this is the whole
+// organisation's stock. That is deliberate rather than overlooked: a proxy an
+// operator bought is exactly what a buyer should be able to attach.
+func (c *Client) ListProxies(ctx context.Context, in ListProxiesInput) ([]Proxy, error) {
 	path := "/api/v1/proxies"
-	if search != "" {
-		path += "?search=" + url.QueryEscape(search)
+	if q := in.query(); len(q) > 0 {
+		path += "?" + q.Encode()
 	}
 
 	resp, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("list proxies: %w", err)
 	}
-	result, err := decodeResponse[ProxyListResponse](resp)
+	result, err := decodeResponse[struct {
+		Items []Proxy `json:"items"`
+	}](resp)
 	if err != nil {
 		return nil, err
 	}
 	return result.Items, nil
+}
+
+// GetProxy resolves one proxy by id. A missing proxy is ErrNotFound.
+func (c *Client) GetProxy(ctx context.Context, id uuid.UUID) (*Proxy, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/api/v1/proxies/"+id.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("get proxy: %w", err)
+	}
+	return decodeResponse[Proxy](resp)
 }
 
 // FindProxyByObservedIP resolves an IP to the proxy whose exit gateway that
