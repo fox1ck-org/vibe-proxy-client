@@ -23,15 +23,19 @@ type ProxyListItem struct {
 	RotationType string    `json:"rotationType"`
 	// ConnectionType is the declared network class ("mobile", "residential",
 	// "datacenter", "isp", or "unknown" while undeclared).
-	ConnectionType string            `json:"connectionType,omitempty"`
-	CountryCode    *string           `json:"countryCode,omitempty"`
-	Region         *string           `json:"region,omitempty"`
-	City           *string           `json:"city,omitempty"`
-	ASN            *int              `json:"asn,omitempty"`
-	ISP            *string           `json:"isp,omitempty"`
-	ExternalIP     *string           `json:"externalIp,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Endpoints      []ProxyEndpoint   `json:"endpoints,omitempty"`
+	ConnectionType string  `json:"connectionType,omitempty"`
+	CountryCode    *string `json:"countryCode,omitempty"`
+	Region         *string `json:"region,omitempty"`
+	City           *string `json:"city,omitempty"`
+	ASN            *int    `json:"asn,omitempty"`
+	ISP            *string `json:"isp,omitempty"`
+	// ExternalID is what the PROVIDER calls this proxy — the id a renewal, a
+	// sync or a destroy is addressed to. Absent for a proxy somebody entered by
+	// hand, which is exactly what makes that proxy un-renewable.
+	ExternalID *string           `json:"externalId,omitempty"`
+	ExternalIP *string           `json:"externalIp,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	Endpoints  []ProxyEndpoint   `json:"endpoints,omitempty"`
 }
 
 // ProxyEndpoint represents a proxy endpoint (protocol + port).
@@ -285,4 +289,72 @@ func (c *Client) FindProxyByObservedIP(ctx context.Context, ip string, within ti
 		return nil, err
 	}
 	return result, nil
+}
+
+// RenewProxyInput is the term a renewal buys. A zero PeriodDays takes the
+// server's default (30 days, the same term a purchase defaults to).
+type RenewProxyInput struct {
+	PeriodDays int `json:"periodDays,omitempty"`
+}
+
+// RenewProxy extends an existing proxy's term with the provider that sold it,
+// and returns the proxy with its new expiry.
+//
+// Renewal is the cheap half of "the proxy died": it keeps the SAME exit IP,
+// while buying a replacement hands the consumer a new address — which, for an
+// account somebody is working, is exactly the change an anti-fraud check looks
+// for. Try this first; treat a replacement as the fallback.
+//
+// Two refusals are worth separating, both via RenewRejectionReason:
+//
+//   - ReasonRenewRefused (409) — the vendor said no. Retrying spends the same
+//     refusal; buy a replacement instead.
+//   - ReasonRenewUnsupported (400) — the proxy was entered by hand, or its
+//     provider has no renew API. There is nobody to ask.
+//
+// A provider that is merely unreachable comes back as a plain 502 with no
+// reason, and retrying that one is right.
+func (c *Client) RenewProxy(ctx context.Context, id uuid.UUID, periodDays int) (*Proxy, error) {
+	resp, err := c.do(ctx, http.MethodPost, "/api/v1/proxies/"+id.String()+"/renew",
+		RenewProxyInput{PeriodDays: periodDays})
+	if err != nil {
+		return nil, fmt.Errorf("renew proxy: %w", err)
+	}
+	return decodeResponse[Proxy](resp)
+}
+
+// ProxyHealthCheck is one live probe of a proxy — the result of asking for a
+// check right now, rather than the stored summary.
+//
+// Conclusive is the field that matters when reporting to a person: a check can
+// fail because no probe target answered, which says nothing about the proxy.
+// Rendering that as "the proxy is down" is how a healthy fleet gets declared
+// dead.
+type ProxyHealthCheck struct {
+	ID             uuid.UUID `json:"id"`
+	ProxyID        uuid.UUID `json:"proxyId"`
+	EndpointID     uuid.UUID `json:"endpointId"`
+	CheckType      string    `json:"checkType"`
+	Success        bool      `json:"success"`
+	Conclusive     bool      `json:"conclusive"`
+	LatencyMs      *int      `json:"latencyMs,omitempty"`
+	ExternalIP     *string   `json:"externalIp,omitempty"`
+	AnonymityLevel *string   `json:"anonymityLevel,omitempty"`
+	ErrorMsg       *string   `json:"errorMsg,omitempty"`
+	CheckedAt      time.Time `json:"checkedAt"`
+}
+
+// CheckProxyHealth probes a proxy on demand and returns what the probe saw.
+//
+// Use it when a person asked "is it alive?" — the stored verdict on
+// Proxy.HealthStatus is a background sweep's, and can be minutes old. There is
+// deliberately no client method for the raw stored summary: it is NOT staleness
+// adjusted, while Proxy.HealthStatus is, and offering both would let a frozen
+// verdict pass for a live one.
+func (c *Client) CheckProxyHealth(ctx context.Context, id uuid.UUID) (*ProxyHealthCheck, error) {
+	resp, err := c.do(ctx, http.MethodPost, "/api/v1/proxies/"+id.String()+"/health/check", nil)
+	if err != nil {
+		return nil, fmt.Errorf("check proxy health: %w", err)
+	}
+	return decodeResponse[ProxyHealthCheck](resp)
 }

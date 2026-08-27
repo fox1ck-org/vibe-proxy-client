@@ -40,3 +40,18 @@ func LeaseRejectionReason(err error) string {
 	}
 	return ""
 }
+
+// RenewRejectionReason extracts the machine-readable reason from a failed
+// RenewProxy call (ReasonRenewRefused / ReasonRenewUnsupported), or "" when the
+// failure was something else — a transport error, a 502 from an unreachable
+// provider, a 404. It is the same mechanism as LeaseRejectionReason, named
+// separately because the two vocabularies do not overlap and a caller reaching
+// for one should never be handed the other's codes.
+func RenewRejectionReason(err error) string {
+	switch reason := LeaseRejectionReason(err); reason {
+	case ReasonRenewRefused, ReasonRenewUnsupported:
+		return reason
+	default:
+		return ""
+	}
+}
