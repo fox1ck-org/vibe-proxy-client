@@ -23,15 +23,19 @@ type ProxyListItem struct {
 	RotationType string    `json:"rotationType"`
 	// ConnectionType is the declared network class ("mobile", "residential",
 	// "datacenter", "isp", or "unknown" while undeclared).
-	ConnectionType string            `json:"connectionType,omitempty"`
-	CountryCode    *string           `json:"countryCode,omitempty"`
-	Region         *string           `json:"region,omitempty"`
-	City           *string           `json:"city,omitempty"`
-	ASN            *int              `json:"asn,omitempty"`
-	ISP            *string           `json:"isp,omitempty"`
-	ExternalIP     *string           `json:"externalIp,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Endpoints      []ProxyEndpoint   `json:"endpoints,omitempty"`
+	ConnectionType string  `json:"connectionType,omitempty"`
+	CountryCode    *string `json:"countryCode,omitempty"`
+	Region         *string `json:"region,omitempty"`
+	City           *string `json:"city,omitempty"`
+	ASN            *int    `json:"asn,omitempty"`
+	ISP            *string `json:"isp,omitempty"`
+	// ExternalID is what the PROVIDER calls this proxy — the id a renewal, a
+	// sync or a destroy is addressed to. Absent for a proxy somebody entered by
+	// hand, which is exactly what makes that proxy un-renewable.
+	ExternalID *string           `json:"externalId,omitempty"`
+	ExternalIP *string           `json:"externalIp,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	Endpoints  []ProxyEndpoint   `json:"endpoints,omitempty"`
 }
 
 // ProxyEndpoint represents a proxy endpoint (protocol + port).
