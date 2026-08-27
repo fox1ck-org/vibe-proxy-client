@@ -199,4 +199,16 @@ const (
 	// CreateRequest, or you will pile up purchase requests for proxies you
 	// already own.
 	ReasonNoHealthyProxies = "no_healthy_proxies"
+
+	// ReasonRenewRefused: the provider was asked to extend a proxy's term and
+	// said no — the address is withdrawn, the order closed, the balance empty.
+	// Retrying spends the same refusal. The move is to buy a replacement, which
+	// is a NEW exit IP and therefore a different decision: for an account being
+	// worked, changing address mid-session is the pattern anti-fraud looks for.
+	ReasonRenewRefused = "renew_refused"
+
+	// ReasonRenewUnsupported: nothing about this proxy can be renewed — it was
+	// entered by hand, or its provider has no renew API. There is no vendor to
+	// ask, so neither retrying nor waiting helps.
+	ReasonRenewUnsupported = "renew_unsupported"
 )
