@@ -42,11 +42,13 @@ func TestCheckExitIP_RequestAndDecode(t *testing.T) {
 	}
 }
 
+// TestCheckExitIP_MismatchOnOtherProxy — a STATIC pinned proxy: an IP sampled
+// on another proxy is a mismatch that names it.
 func TestCheckExitIP_MismatchOnOtherProxy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ip":"46.133.1.2","consistent":false,"match":"none","mismatchReason":"ip_observed_on_other_proxy",
-			"observedOn":{"id":"11111111-1111-1111-1111-111111111111","name":"Z-Proxy/UA/2"},
-			"proxy":{"id":"` + zProxyID + `","name":"Z-Proxy/UA/1"}}`))
+			"observedOn":{"id":"11111111-1111-1111-1111-111111111111","name":"proxyline/UA/8"},
+			"proxy":{"id":"` + zProxyID + `","name":"proxyline/UA/7","rotationType":"static","connectionType":"datacenter"}}`))
 	}))
 	defer srv.Close()
 
@@ -57,7 +59,7 @@ func TestCheckExitIP_MismatchOnOtherProxy(t *testing.T) {
 	if got.Consistent || got.Match != MatchNone || got.MismatchReason != MismatchIPObservedOnOtherProxy {
 		t.Fatalf("got %+v", got)
 	}
-	if got.ObservedOn == nil || got.ObservedOn.Name != "Z-Proxy/UA/2" {
+	if got.ObservedOn == nil || got.ObservedOn.Name != "proxyline/UA/8" {
 		t.Fatalf("observedOn = %+v", got.ObservedOn)
 	}
 }
@@ -70,7 +72,10 @@ func TestCheckExitIP_ValidatesLocally(t *testing.T) {
 	id := uuid.MustParse(zProxyID)
 
 	for name, call := range map[string]func() error{
-		"nil id":   func() error { _, err := c.CheckExitIP(context.Background(), uuid.Nil, "1.2.3.4", time.Minute); return err },
+		"nil id": func() error {
+			_, err := c.CheckExitIP(context.Background(), uuid.Nil, "1.2.3.4", time.Minute)
+			return err
+		},
 		"empty ip": func() error { _, err := c.CheckExitIP(context.Background(), id, "  ", time.Minute); return err },
 		"zero win": func() error { _, err := c.CheckExitIP(context.Background(), id, "1.2.3.4", 0); return err },
 	} {
@@ -137,5 +142,29 @@ func TestLeaseRejectionNeedsOperator(t *testing.T) {
 	}
 	if LeaseRejectionNeedsOperator(nil) {
 		t.Error("nil is not a rejection")
+	}
+}
+
+// TestCheckExitIP_NetworkMatchWithInformationalObservedOn — carrier CGNAT: a
+// rotating mobile proxy stays consistent by network even when a sibling
+// sampled the same IP; observedOn is carried for logging only.
+func TestCheckExitIP_NetworkMatchWithInformationalObservedOn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ip":"46.133.1.2","consistent":true,"match":"network",
+			"ipNetwork":{"asn":21497,"source":"ip-api.com","resolvedAt":"2026-09-15T10:00:00Z"},
+			"observedOn":{"id":"11111111-1111-1111-1111-111111111111","name":"Z-Proxy/UA/2"},
+			"proxy":{"id":"` + zProxyID + `","name":"Z-Proxy/UA/1","rotationType":"rotating","connectionType":"mobile"}}`))
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "k").CheckExitIP(context.Background(), uuid.MustParse(zProxyID), "46.133.1.2", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Consistent || got.Match != MatchNetwork || got.MismatchReason != "" {
+		t.Fatalf("got %+v", got)
+	}
+	if got.ObservedOn == nil || got.ObservedOn.Name != "Z-Proxy/UA/2" {
+		t.Fatalf("observedOn = %+v", got.ObservedOn)
 	}
 }

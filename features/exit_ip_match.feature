@@ -33,11 +33,18 @@ Feature: A rotating mobile proxy's changing exit IP is consistent, not a missing
     When the caller checks exit IP "93.72.1.1" against the pinned proxy
     Then the IP is not consistent because "network_mismatch"
 
-  Scenario: an IP seen on another proxy is a mismatch that names that proxy
-    Given vibe-proxy answers the check with mismatch "ip_observed_on_other_proxy" on proxy "Z-Proxy/UA/2"
+  Scenario: carrier CGNAT - an IP a sibling mobile proxy sampled still matches by network
+    Given vibe-proxy answers the check with match "network" and IP ASN 21497, also observed on proxy "Z-Proxy/UA/2"
     When the caller checks exit IP "46.133.9.9" against the pinned proxy
-    Then the IP is not consistent because "ip_observed_on_other_proxy"
+    Then the IP is consistent with match "network"
     And the other proxy is "Z-Proxy/UA/2"
+
+  Scenario: a static proxy whose reported IP was sampled on another proxy is a mismatch naming it
+    Given the pinned proxy "proxyline/UA/7" is a static datacenter proxy
+    And vibe-proxy answers the check with mismatch "ip_observed_on_other_proxy" on proxy "proxyline/UA/8"
+    When the caller checks exit IP "185.1.2.3" against the pinned proxy
+    Then the IP is not consistent because "ip_observed_on_other_proxy"
+    And the other proxy is "proxyline/UA/8"
 
   Scenario: a failed network lookup is transient, never a mismatch
     Given vibe-proxy cannot resolve the IP network

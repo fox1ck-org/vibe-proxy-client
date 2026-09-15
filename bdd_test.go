@@ -20,6 +20,8 @@ type bddWorld struct {
 	srv       *httptest.Server
 	pinned    uuid.UUID
 	pinName   string
+	rotation  string
+	connType  string
 	status    int
 	body      string
 	listItems []map[string]any
@@ -73,6 +75,8 @@ func (w *bddWorld) register(sc *godog.ScenarioContext) {
 	sc.Step(`^vibe-proxy answers the check with match "([^"]*)" and IP ASN (\d+)$`, w.answerMatchASN)
 	sc.Step(`^vibe-proxy answers the check with mismatch "([^"]*)" and IP ASN (\d+)$`, w.answerMismatchASN)
 	sc.Step(`^vibe-proxy answers the check with mismatch "([^"]*)" on proxy "([^"]*)"$`, w.answerOtherProxy)
+	sc.Step(`^vibe-proxy answers the check with match "([^"]*)" and IP ASN (\d+), also observed on proxy "([^"]*)"$`, w.answerMatchASNObservedOn)
+	sc.Step(`^the pinned proxy "([^"]*)" is a static datacenter proxy$`, w.pinnedStatic)
 	sc.Step(`^vibe-proxy cannot resolve the IP network$`, w.lookupDown)
 	sc.Step(`^the pinned proxy does not exist$`, w.proxyGone)
 	sc.Step(`^the caller checks exit IP "([^"]*)" against the pinned proxy$`, w.check)
@@ -101,13 +105,24 @@ func (w *bddWorld) register(sc *godog.ScenarioContext) {
 // ── Given ────────────────────────────────────────────────────────────────────
 
 func (w *bddWorld) pinnedMobile(name string, _ int) error {
-	w.pinName = name
+	w.pinName, w.rotation, w.connType = name, "rotating", "mobile"
+	return nil
+}
+
+func (w *bddWorld) pinnedStatic(name string) error {
+	w.pinName, w.rotation, w.connType = name, "static", "datacenter"
 	return nil
 }
 
 func (w *bddWorld) proxyJSON() string {
-	return fmt.Sprintf(`{"id":%q,"name":%q,"status":"enabled","rotationType":"rotating","connectionType":"mobile","asn":21497,"expired":false,"leasability":"ok"}`,
-		w.pinned, w.pinName)
+	return fmt.Sprintf(`{"id":%q,"name":%q,"status":"enabled","rotationType":%q,"connectionType":%q,"asn":21497,"expired":false,"leasability":"ok"}`,
+		w.pinned, w.pinName, w.rotation, w.connType)
+}
+
+func (w *bddWorld) answerMatchASNObservedOn(kind string, asn int, other string) error {
+	w.body = fmt.Sprintf(`{"ip":"x","consistent":true,"match":%q,"ipNetwork":{"asn":%d,"source":"ip-api.com","resolvedAt":"2026-09-15T10:00:00Z"},"observedOn":{"id":%q,"name":%q,"rotationType":"rotating","connectionType":"mobile"},"proxy":%s}`,
+		kind, asn, uuid.NewString(), other, w.proxyJSON())
+	return nil
 }
 
 func (w *bddWorld) answerMatch(kind string) error {

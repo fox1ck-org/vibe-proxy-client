@@ -35,8 +35,11 @@ const (
 	// MismatchIPNotObserved — a proxy that does not rotate (or is not mobile)
 	// was never seen at this IP. Static proxies keep exact semantics.
 	MismatchIPNotObserved ExitIPMismatch = "ip_not_observed"
-	// MismatchIPObservedOnOtherProxy — the IP was seen on a DIFFERENT proxy
-	// (ExitIPMatch.ObservedOn). Checked before any network match.
+	// MismatchIPObservedOnOtherProxy — a proxy that does NOT rotate within its
+	// network (static, or not mobile) was not seen at this IP, but a DIFFERENT
+	// proxy was, inside `within` (ExitIPMatch.ObservedOn). Decided before
+	// ip_not_observed. Never produced for a rotating mobile proxy: carriers use
+	// CGNAT, so a sibling having sampled the IP proves nothing about this one.
 	MismatchIPObservedOnOtherProxy ExitIPMismatch = "ip_observed_on_other_proxy"
 	// MismatchNetwork — a rotating mobile proxy, but the IP is in another ASN.
 	MismatchNetwork ExitIPMismatch = "network_mismatch"
@@ -64,8 +67,12 @@ type ExitIPMatch struct {
 	MismatchReason ExitIPMismatch  `json:"mismatchReason,omitempty"`
 	// IPNetwork is set whenever the server resolved the IP's network.
 	IPNetwork *IPNetwork `json:"ipNetwork,omitempty"`
-	// ObservedOn is the other proxy the IP was seen on, with
-	// MismatchIPObservedOnOtherProxy — the caller decides whether to rebind.
+	// ObservedOn is a different proxy whose rotation log (proxy_ip_observation,
+	// inside `within` — never a stale external_ip snapshot) holds this IP. For a
+	// static proxy it comes with MismatchIPObservedOnOtherProxy and the caller
+	// decides whether to rebind. For a rotating mobile proxy it is INFORMATIONAL
+	// and may accompany a consistent `network` answer as well as
+	// `network_mismatch`: carrier CGNAT hands the same address to siblings.
 	ObservedOn *Proxy `json:"observedOn,omitempty"`
 	// Proxy is the pinned proxy (alias-followed: ResolvedFrom is set when the id
 	// asked for was a dead one). It carries Expired/Leasability: a consistent IP
@@ -82,8 +89,13 @@ type ExitIPMatch struct {
 //     connection_type mobile AND the IP's ASN equals the proxy's ASN.
 //   - none     — otherwise; MismatchReason explains.
 //
-// An IP observed on ANOTHER proxy is a mismatch even if the ASN agrees, and is
-// checked before the network comparison. Static proxies never network-match.
+// Order for a proxy that rotates within its network (rotating|sticky_rotating
+// AND mobile): exact → observed → network compare. An IP sampled on another
+// proxy does not decide the answer there (carrier CGNAT shares addresses); it
+// is reported in ObservedOn for the caller to log. For every other proxy the
+// order is exact → observed → ip_observed_on_other_proxy → ip_not_observed:
+// static proxies never network-match. "Another proxy" evidence is read only
+// from proxy_ip_observation inside `within`.
 //
 // This exists because a rotating mobile proxy's exit changes constantly —
 // Z-Proxy/UA/1 showed 130 distinct IPs in 24h, each for under half an hour — so
