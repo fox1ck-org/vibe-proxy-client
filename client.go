@@ -115,18 +115,18 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (*http.R
 			return nil, fmt.Errorf("request failed after %d attempts: %w", maxRetries+1, err)
 		}
 
-		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests {
+		// The LAST 503/429 is handed back rather than swallowed: its body can
+		// carry a machine reason (network_lookup_unavailable, quota_exhausted)
+		// that the caller needs to tell "transient, retry later" from a verdict.
+		if (resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests) && attempt < maxRetries {
 			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("server returned %d", resp.StatusCode)
-			if attempt < maxRetries {
-				time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
-				if body != nil {
-					data, _ := json.Marshal(body)
-					bodyReader = bytes.NewReader(data)
-				}
-				continue
+			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+			if body != nil {
+				data, _ := json.Marshal(body)
+				bodyReader = bytes.NewReader(data)
 			}
-			return nil, lastErr
+			continue
 		}
 
 		return resp, nil

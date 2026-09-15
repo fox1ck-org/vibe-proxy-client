@@ -30,15 +30,34 @@ var (
 // LeaseRejectionReason extracts the machine-readable reason from a vibe-proxy
 // API error (one of the Reason* constants: proxy_disabled / proxy_expired /
 // proxy_unhealthy / proxy_not_found / no_matching_proxies /
-// no_healthy_proxies), or "" if err is nil or not a classified *APIError. Use
-// this instead of sniffing err.Error() substrings — the message is prose and
-// has already changed once; the reason is the contract.
+// no_healthy_proxies / network_lookup_unavailable), or "" if err is nil or not
+// a classified *APIError. Use this instead of sniffing err.Error() substrings —
+// the message is prose and has already changed once; the reason is the
+// contract.
 func LeaseRejectionReason(err error) string {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.Reason
 	}
 	return ""
+}
+
+// LeaseRejectionNeedsOperator reports whether a pinned lease was refused for a
+// reason no retry can fix: the proxy is expired, disabled, or gone. Those need
+// a human (renew, re-enable, re-bind). Everything else — unhealthy, pool full,
+// no healthy proxies, a network lookup that failed, a transport error — is
+// transient and false here.
+//
+// A true answer is never a licence to hand a sticky consumer a different
+// proxy: the proxy is bound to a profile, and changing the exit IP without a
+// reason is exactly what anti-fraud looks for.
+func LeaseRejectionNeedsOperator(err error) bool {
+	switch LeaseRejectionReason(err) {
+	case ReasonProxyExpired, ReasonProxyDisabled, ReasonProxyNotFound:
+		return true
+	default:
+		return false
+	}
 }
 
 // RenewRejectionReason extracts the machine-readable reason from a failed

@@ -36,6 +36,27 @@ type ProxyListItem struct {
 	ExternalIP *string           `json:"externalIp,omitempty"`
 	Labels     map[string]string `json:"labels,omitempty"`
 	Endpoints  []ProxyEndpoint   `json:"endpoints,omitempty"`
+
+	// Expired reports that the provider's term has run out. vibe-proxy derives
+	// it at read time from expires_at against the DATABASE clock — the same
+	// predicate lease selection uses — so it can never disagree with a lease
+	// answer. Expiry is deliberately NOT a Status value: Status stays
+	// enabled/disabled/banned (operator intent), and an enabled proxy can be
+	// expired. On 2026-09-15, 213 proxies read status=enabled while every
+	// pinned lease on them answered 409 proxy_expired.
+	Expired bool `json:"expired"`
+
+	// Leasability is the verdict POST /leases would give a lease pinned to this
+	// proxy right now (vibe-proxy's ClassifyLeasable over status × expiry ×
+	// effective health). disabled outranks expired, expired outranks unhealthy.
+	Leasability Leasability `json:"leasability,omitempty"`
+}
+
+// NeedsOperator reports whether this proxy cannot serve a pinned consumer
+// until a human acts (renew, re-enable, re-bind). An unhealthy proxy is not
+// in this set: that verdict is transient.
+func (p ProxyListItem) NeedsOperator() bool {
+	return p.Leasability == LeasabilityExpired || p.Leasability == LeasabilityDisabled
 }
 
 // ProxyEndpoint represents a proxy endpoint (protocol + port).
@@ -53,23 +74,27 @@ type ProxyListResponse struct {
 	TotalCount int             `json:"totalCount"`
 }
 
-// Proxy is a proxy with the two lifecycle facts a chooser needs on top of the
-// list shape.
+// Proxy is a proxy with the lifecycle facts a chooser needs on top of the list
+// shape.
 //
-// Both matter to whoever is picking. An expired proxy is deleted by
-// vibe-proxy's next sweep, so attaching one hands an account a proxy that
-// vanishes; and HealthStatus is EFFECTIVE health — vibe-proxy reports a stale
-// summary as "unknown" rather than letting a frozen verdict pass for a live one.
+// An expired proxy is NOT deleted when its term ends: vibe-proxy keeps it —
+// unleasable, findable and renewable at the SAME exit IP — until RenewableUntil,
+// and only then reaps it. Whether it is expired is the server-derived
+// ProxyListItem.Expired field; there is no client-side clock check, because a
+// second opinion computed on another machine's clock is how the two disagree.
+// HealthStatus is EFFECTIVE health — vibe-proxy reports a stale summary as
+// "unknown" rather than letting a frozen verdict pass for a live one.
 type Proxy struct {
 	ProxyListItem
-	ExpiresAt    *time.Time `json:"expiresAt,omitempty"`
-	HealthStatus *string    `json:"healthStatus,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt"`
-}
-
-// Expired reports whether the provider's term has already run out.
-func (p Proxy) Expired(now time.Time) bool {
-	return p.ExpiresAt != nil && !p.ExpiresAt.After(now)
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	// RenewableUntil is expires_at + the retention window: the last day the
+	// vendor still sells the extension. Present only when ExpiresAt is.
+	RenewableUntil *time.Time `json:"renewableUntil,omitempty"`
+	HealthStatus   *string    `json:"healthStatus,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	// ResolvedFrom is set when the id asked for was a dead alias and this is
+	// the row that now holds the same address — store ID instead.
+	ResolvedFrom *uuid.UUID `json:"resolvedFrom,omitempty"`
 }
 
 // Provider is who it was bought from, from vibe-proxy's classification label.
@@ -116,7 +141,10 @@ type ListProxiesInput struct {
 	// way to learn what a request turned into — the request itself never names
 	// them, so a purchase whose response was lost is only recoverable this way.
 	Labels map[string]string
-	Limit  int
+	// Expired narrows to proxies whose term has (true) or has not (false) run
+	// out. Nil means both.
+	Expired *bool
+	Limit   int
 	// Sort/Order are passed through verbatim ("created_at" + "desc" puts the
 	// proxy somebody just bought where they expect to find it).
 	Sort  string
@@ -141,6 +169,9 @@ func (in ListProxiesInput) query() url.Values {
 		}
 		sort.Strings(pairs)
 		q.Set("labels", strings.Join(pairs, ","))
+	}
+	if in.Expired != nil {
+		q.Set("expired", strconv.FormatBool(*in.Expired))
 	}
 	if in.Limit > 0 {
 		q.Set("limit", strconv.Itoa(in.Limit))
@@ -264,7 +295,14 @@ func (c *Client) GetProxy(ctx context.Context, id uuid.UUID) (*Proxy, error) {
 // the match. `within` is how far back the server is allowed to search;
 // it is clamped server-side to a maximum bound (default 1h).
 //
-// Returns (nil, nil) if no proxy matched within the window.
+// This is exact/observed resolution ONLY — never network matching. Several
+// rotating mobile proxies can share one carrier ASN, so an unpinned lookup
+// that matched by network would have to pick one of them arbitrarily. A caller
+// that already knows which proxy the profile is bound to must ask CheckExitIP
+// instead; that is the call that tolerates a rotating mobile exit.
+//
+// Returns (nil, nil) if no proxy matched within the window. The returned proxy
+// carries Expired/Leasability and is returned regardless of them.
 func (c *Client) FindProxyByObservedIP(ctx context.Context, ip string, within time.Duration) (*ProxyListItem, error) {
 	if ip == "" {
 		return nil, fmt.Errorf("ip is required")
