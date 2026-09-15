@@ -175,9 +175,26 @@ func (e *APIError) Error() string {
 	return e.Message
 }
 
+// Leasability is vibe-proxy's verdict on whether a lease pinned to a proxy
+// would be granted right now. Derived at read time on every proxy read, with
+// the same function the lease path uses.
+type Leasability string
+
+const (
+	LeasabilityOK        Leasability = "ok"
+	LeasabilityDisabled  Leasability = "disabled"
+	LeasabilityExpired   Leasability = "expired"
+	LeasabilityUnhealthy Leasability = "unhealthy"
+)
+
 // Lease-rejection reason codes emitted by vibe-proxy. Match against
 // APIError.Reason (via LeaseRejectionReason), never the error string.
 const (
+	// ReasonNetworkLookupUnavailable (503): CheckExitIP needed the IP's network
+	// and the ip-intelligence lookup failed. Transient — retry later, and do
+	// NOT record it as a mismatch.
+	ReasonNetworkLookupUnavailable = "network_lookup_unavailable"
+
 	// Pinned PreferredProxyID that can't be leased:
 	ReasonProxyDisabled  = "proxy_disabled"
 	ReasonProxyExpired   = "proxy_expired"

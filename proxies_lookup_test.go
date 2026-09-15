@@ -37,7 +37,7 @@ func TestListProxies_FiltersAreQueryParams(t *testing.T) {
 // exists rather than reusing ProxyListItem.
 func TestListProxies_DecodesLifecycleFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"items":[{"id":"33333333-3333-3333-3333-333333333333","name":"proxyline/PL/9","host":"1.2.3.4","status":"enabled","rotationType":"static","expiresAt":"2026-01-01T00:00:00Z","healthStatus":"unknown","labels":{"provider":"proxyline"}}]}`))
+		_, _ = w.Write([]byte(`{"items":[{"id":"33333333-3333-3333-3333-333333333333","name":"proxyline/PL/9","host":"1.2.3.4","status":"enabled","rotationType":"static","expiresAt":"2026-01-01T00:00:00Z","renewableUntil":"2026-02-15T00:00:00Z","expired":true,"leasability":"expired","healthStatus":"unknown","labels":{"provider":"proxyline"}}]}`))
 	}))
 	defer srv.Close()
 
@@ -53,13 +53,49 @@ func TestListProxies_DecodesLifecycleFields(t *testing.T) {
 	if p.Provider() != "proxyline" {
 		t.Fatalf("provider = %q", p.Provider())
 	}
-	if !p.Expired(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Fatal("a proxy whose term ran out in January must read as expired in June")
+	// Expiry is the SERVER's verdict, read verbatim — never recomputed here.
+	if !p.Expired || p.Leasability != LeasabilityExpired {
+		t.Fatalf("expired=%v leasability=%q, want true/expired", p.Expired, p.Leasability)
 	}
-	if p.Expired(time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Fatal("a proxy with time left must not read as expired")
+	if p.Status != "enabled" {
+		t.Fatalf("status = %q: expiry must not leak into status", p.Status)
+	}
+	if !p.NeedsOperator() {
+		t.Fatal("an expired proxy needs an operator")
+	}
+	if p.RenewableUntil == nil || !p.RenewableUntil.Equal(time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("renewableUntil = %v", p.RenewableUntil)
 	}
 }
+
+func TestListProxies_ExpiredFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   *bool
+		want string
+	}{
+		{"unset", nil, ""},
+		{"only expired", ptrBool(true), "expired=true"},
+		{"only in term", ptrBool(false), "expired=false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.URL.RawQuery
+				_, _ = w.Write([]byte(`{"items":[]}`))
+			}))
+			defer srv.Close()
+			if _, err := NewClient(srv.URL, "k").ListProxies(context.Background(), ListProxiesInput{Expired: tc.in}); err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("query = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func ptrBool(b bool) *bool { return &b }
 
 // TestGetProxy_NotFound keeps the sentinel: a missing proxy is a normal answer
 // for a caller reconciling a stale id, not a transport failure.
