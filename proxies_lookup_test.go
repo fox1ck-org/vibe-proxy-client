@@ -3,10 +3,15 @@ package vibeproxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // TestListProxies_FiltersAreQueryParams pins the axes the picker sends.
@@ -142,5 +147,39 @@ func TestDefaultEndpoint_FallsBackToSocks(t *testing.T) {
 func TestDefaultEndpoint_NoEndpoints(t *testing.T) {
 	if _, _, ok := DefaultEndpoint(Proxy{}); ok {
 		t.Fatal("a proxy with no endpoints must report ok=false")
+	}
+}
+
+// TestListAllProxies_WalksEveryPage — vibe-proxy serves at most 100 per page
+// and answers a bigger limit with 50, so the whole fleet only arrives by
+// walking offsets until a page comes back short.
+func TestListAllProxies_WalksEveryPage(t *testing.T) {
+	const fleet = 250
+	var offsets []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("limit") != "100" || q.Get("country_code") != "UA" {
+			t.Fatalf("query = %s", r.URL.RawQuery)
+		}
+		offsets = append(offsets, q.Get("offset"))
+		off, _ := strconv.Atoi(q.Get("offset"))
+		n := min(100, fleet-off)
+		items := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			items = append(items, fmt.Sprintf(`{"id":"%s","name":"p%d","host":"h","status":"enabled"}`, uuid.New(), off+i))
+		}
+		_, _ = w.Write([]byte(`{"items":[` + strings.Join(items, ",") + `]}`))
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "k").ListAllProxies(context.Background(), ListProxiesInput{CountryCode: "ua", Limit: 200, Offset: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != fleet || got[0].Name != "p0" || got[fleet-1].Name != fmt.Sprintf("p%d", fleet-1) {
+		t.Fatalf("got %d proxies", len(got))
+	}
+	if strings.Join(offsets, ",") != ",100,200" {
+		t.Fatalf("offsets = %v", offsets)
 	}
 }
