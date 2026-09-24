@@ -144,7 +144,13 @@ type ListProxiesInput struct {
 	// Expired narrows to proxies whose term has (true) or has not (false) run
 	// out. Nil means both.
 	Expired *bool
-	Limit   int
+	// Limit is one page. vibe-proxy serves at most MaxListPage per page and
+	// answers a larger number with its default of 50 — not an error, just a
+	// shorter list — so a caller that wants the whole fleet uses
+	// ListAllProxies, which walks the pages.
+	Limit int
+	// Offset skips that many proxies of the ordered listing.
+	Offset int
 	// Sort/Order are passed through verbatim ("created_at" + "desc" puts the
 	// proxy somebody just bought where they expect to find it).
 	Sort  string
@@ -175,6 +181,9 @@ func (in ListProxiesInput) query() url.Values {
 	}
 	if in.Limit > 0 {
 		q.Set("limit", strconv.Itoa(in.Limit))
+	}
+	if in.Offset > 0 {
+		q.Set("offset", strconv.Itoa(in.Offset))
 	}
 	if in.Sort != "" {
 		q.Set("sort", in.Sort)
@@ -273,6 +282,37 @@ func (c *Client) ListProxies(ctx context.Context, in ListProxiesInput) ([]Proxy,
 		return nil, err
 	}
 	return result.Items, nil
+}
+
+// MaxListPage is the largest page vibe-proxy serves. It does not refuse a
+// larger limit; it replaces it with 50.
+const MaxListPage = 100
+
+// maxListPages bounds ListAllProxies: a fleet past this many pages is a
+// runaway listing, not a fleet anybody picks from by eye.
+const maxListPages = 50
+
+// ListAllProxies is ListProxies across every page: in.Limit and in.Offset
+// are ignored, every other axis applies.
+//
+// A picker that asked for 200 got 50 and never knew — vibe-proxy's answer to
+// a limit above MaxListPage is its default, and 780 proxies in one country
+// were read as the first 50. This walks the pages until one comes back short.
+func (c *Client) ListAllProxies(ctx context.Context, in ListProxiesInput) ([]Proxy, error) {
+	in.Limit, in.Offset = MaxListPage, 0
+	var out []Proxy
+	for range maxListPages {
+		page, err := c.ListProxies(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page...)
+		if len(page) < in.Limit {
+			return out, nil
+		}
+		in.Offset += len(page)
+	}
+	return nil, fmt.Errorf("list proxies: more than %d pages of %d", maxListPages, MaxListPage)
 }
 
 // GetProxy resolves one proxy by id. A missing proxy is ErrNotFound.
