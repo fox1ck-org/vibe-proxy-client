@@ -35,10 +35,16 @@ func (i AcquireLeaseInput) validate() error {
 	if strings.TrimSpace(i.ConsumerID) == "" {
 		return fmt.Errorf("%w: consumerId is required", ErrInvalidInput)
 	}
+	if (len(i.ExcludeProxyIDs) > 0 || len(i.AvoidExternalIPs) > 0) &&
+		i.PreferredProxyID != nil && *i.PreferredProxyID != uuid.Nil {
+		return fmt.Errorf("%w: excludeProxyIds/avoidExternalIps narrow an unpinned lease; drop preferredProxyId", ErrInvalidInput)
+	}
 	return nil
 }
 
-// GetLease retrieves a lease by ID with connection details.
+// GetLease retrieves a lease by ID with connection details and its exit
+// (Proxy). On a rotating proxy the exit is observed afresh — poll this to wait
+// for a rotation.
 func (c *Client) GetLease(ctx context.Context, leaseID uuid.UUID) (*LeaseResponse, error) {
 	resp, err := c.do(ctx, http.MethodGet, "/api/v1/leases/"+leaseID.String(), nil)
 	if err != nil {
