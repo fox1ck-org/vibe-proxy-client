@@ -94,12 +94,32 @@ type AcquireLeaseInput struct {
 	// the proxy works (e.g. an observed exit IP); it never overrides a
 	// disabled/banned or missing proxy.
 	AllowUnhealthyPreferred bool `json:"allowUnhealthyPreferred,omitempty"`
+
+	// ExcludeProxyIDs and AvoidExternalIPs ask for an exit the caller has NOT
+	// just used: no proxy with one of these ids, and none whose current exit
+	// IP is one of these (a rotating proxy is observed afresh before it is
+	// granted). Unpinned leases only — combining them with PreferredProxyID is
+	// rejected locally. Nothing left is a 409 with ReasonNoOtherProxies.
+	ExcludeProxyIDs  []uuid.UUID `json:"excludeProxyIds,omitempty"`
+	AvoidExternalIPs []string    `json:"avoidExternalIps,omitempty"`
 }
 
 // LeaseResponse is the response from acquiring or getting a lease.
 type LeaseResponse struct {
 	Lease      Lease          `json:"lease"`
 	Connection ConnectionInfo `json:"connection"`
+	Proxy      LeaseExit      `json:"proxy"`
+}
+
+// LeaseExit is where the lease's exit is and how old that answer is. GetLease
+// on a rotating proxy observes the exit afresh when the server's latest sample
+// is older than its freshness window (15 s), so a holder waiting for a
+// rotation polls GetLease and compares ExternalIP. A nil ExternalIPObservedAt
+// means nobody has observed this exit yet.
+type LeaseExit struct {
+	ExternalIP           *string    `json:"externalIp,omitempty"`
+	ExternalIPObservedAt *time.Time `json:"externalIpObservedAt,omitempty"`
+	RotationType         string     `json:"rotationType"`
 }
 
 // ConnectionInfo is WHERE TO DIAL plus WHO WE LOOK LIKE — two different things.
@@ -216,6 +236,12 @@ const (
 	// CreateRequest, or you will pile up purchase requests for proxies you
 	// already own.
 	ReasonNoHealthyProxies = "no_healthy_proxies"
+
+	// ReasonNoOtherProxies: every proxy of the requested shape is one the
+	// caller excluded (ExcludeProxyIDs) or exits at an IP it is avoiding
+	// (AvoidExternalIPs). Not a supply problem — wait for a rotation or retry
+	// later; do NOT open a CreateRequest.
+	ReasonNoOtherProxies = "no_other_proxies"
 
 	// ReasonRenewRefused: the provider was asked to extend a proxy's term and
 	// said no — the address is withdrawn, the order closed, the balance empty.

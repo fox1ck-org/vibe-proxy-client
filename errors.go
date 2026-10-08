@@ -30,7 +30,7 @@ var (
 // LeaseRejectionReason extracts the machine-readable reason from a vibe-proxy
 // API error (one of the Reason* constants: proxy_disabled / proxy_expired /
 // proxy_unhealthy / proxy_not_found / no_matching_proxies /
-// no_healthy_proxies / network_lookup_unavailable), or "" if err is nil or not
+// no_healthy_proxies / no_other_proxies / network_lookup_unavailable), or "" if err is nil or not
 // a classified *APIError. Use this instead of sniffing err.Error() substrings —
 // the message is prose and has already changed once; the reason is the
 // contract.

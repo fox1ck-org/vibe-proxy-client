@@ -17,6 +17,7 @@ import (
 // drowning the proxy's request log and hiding the caller behind an opaque status.
 func TestAcquireLeaseRejectsDoomedInputWithoutCallingTheServer(t *testing.T) {
 	pool := uuid.New()
+	pin := uuid.New()
 	cases := []struct {
 		name  string
 		input AcquireLeaseInput
@@ -26,6 +27,12 @@ func TestAcquireLeaseRejectsDoomedInputWithoutCallingTheServer(t *testing.T) {
 			name:  "empty consumerId",
 			input: AcquireLeaseInput{PoolID: pool, ConsumerID: ""},
 			want:  "consumerId is required",
+		},
+		{
+			name: "pin with exclusions",
+			input: AcquireLeaseInput{PoolID: pool, ConsumerID: "phone-1",
+				PreferredProxyID: &pin, ExcludeProxyIDs: []uuid.UUID{pin}},
+			want: "narrow an unpinned lease",
 		},
 		{
 			name:  "blank consumerId",
