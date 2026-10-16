@@ -168,3 +168,35 @@ func TestCheckExitIP_NetworkMatchWithInformationalObservedOn(t *testing.T) {
 		t.Fatalf("observedOn = %+v", got.ObservedOn)
 	}
 }
+
+func TestResolveIPNetwork_RequestAndDecode(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{"asn":48031,"isp":"Ivanov Vitaliy Sergeevich","countryCode":"PL","region":"Pomerania",
+			"city":"Gdynia","timezone":"Europe/Warsaw","latitude":54.5189,"longitude":18.5305,
+			"source":"ip-api.com","resolvedAt":"2026-10-16T07:00:00Z"}`))
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "k").ResolveIPNetwork(context.Background(), " 138.249.74.31 ")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if gotPath != "/api/v1/ip-networks/138.249.74.31" {
+		t.Fatalf("path=%q", gotPath)
+	}
+	if got.Timezone == nil || *got.Timezone != "Europe/Warsaw" || got.City == nil || *got.City != "Gdynia" {
+		t.Fatalf("location = %+v", got)
+	}
+	if got.ASN == nil || *got.ASN != 48031 || got.Latitude == nil || *got.Latitude != 54.5189 {
+		t.Fatalf("network = %+v", got)
+	}
+}
+
+func TestResolveIPNetwork_RequiresIP(t *testing.T) {
+	_, err := NewClient("http://127.0.0.1:1", "k").ResolveIPNetwork(context.Background(), "  ")
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
