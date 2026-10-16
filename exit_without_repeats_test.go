@@ -58,3 +58,30 @@ func TestNoOtherProxiesIsAReason(t *testing.T) {
 		t.Error("no_other_proxies is transient, not an operator matter")
 	}
 }
+
+// preferLowRisk travels under the server's name, and only when asked for: an
+// omitted preference must not reach a server as an explicit false.
+func TestAcquireSendsPreferLowRiskOnlyWhenSet(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent = nil
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"lease":{},"connection":{"host":"h","port":1,"protocol":"http"},"proxy":{"rotationType":"static"}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "")
+
+	if _, err := c.AcquireLease(context.Background(), AcquireLeaseInput{PoolID: uuid.New(), ConsumerID: "p", PreferLowRisk: true}); err != nil {
+		t.Fatal(err)
+	}
+	if sent["preferLowRisk"] != true {
+		t.Errorf("preferLowRisk = %v, want true", sent["preferLowRisk"])
+	}
+	if _, err := c.AcquireLease(context.Background(), AcquireLeaseInput{PoolID: uuid.New(), ConsumerID: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := sent["preferLowRisk"]; present {
+		t.Errorf("preferLowRisk sent when unset: %v", sent)
+	}
+}

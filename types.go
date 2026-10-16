@@ -102,6 +102,16 @@ type AcquireLeaseInput struct {
 	// rejected locally. Nothing left is a 409 with ReasonNoOtherProxies.
 	ExcludeProxyIDs  []uuid.UUID `json:"excludeProxyIds,omitempty"`
 	AvoidExternalIPs []string    `json:"avoidExternalIps,omitempty"`
+
+	// PreferLowRisk is a SOFT preference, never a filter: among the
+	// candidates left after every hard axis above, the server keeps only the
+	// least proxy-looking tier its ip-intelligence knows of — first exits not
+	// flagged proxy/VPN/Tor/relay whose observed type is residential, mobile
+	// or isp; then any unflagged exit; then everything else. A pool with no
+	// clean exit still leases — this never produces a rejection. Unpinned
+	// leases only (a pin names the proxy). Like every filter it shapes NEW
+	// allocations; an idempotent re-acquire returns the held lease.
+	PreferLowRisk bool `json:"preferLowRisk,omitempty"`
 }
 
 // LeaseResponse is the response from acquiring or getting a lease.

@@ -50,12 +50,23 @@ const (
 
 // IPNetwork is the network an IP belongs to, as vibe-proxy's ip-intelligence
 // lookup resolved it (cached server-side).
+//
+// The location fields (Region, City, Timezone, Latitude, Longitude) are where
+// the IP geolocates — what a website's own GeoIP lookup will say about it.
+// They are set by ResolveIPNetwork; CheckExitIP only promises the network
+// (ASN, ISP, country).
 type IPNetwork struct {
-	ASN         *int      `json:"asn,omitempty"`
-	ISP         *string   `json:"isp,omitempty"`
-	CountryCode *string   `json:"countryCode,omitempty"`
-	Source      string    `json:"source"`
-	ResolvedAt  time.Time `json:"resolvedAt"`
+	ASN         *int    `json:"asn,omitempty"`
+	ISP         *string `json:"isp,omitempty"`
+	CountryCode *string `json:"countryCode,omitempty"`
+	Region      *string `json:"region,omitempty"`
+	City        *string `json:"city,omitempty"`
+	// Timezone is the IANA zone of the IP's location ("Europe/Warsaw").
+	Timezone   *string   `json:"timezone,omitempty"`
+	Latitude   *float64  `json:"latitude,omitempty"`
+	Longitude  *float64  `json:"longitude,omitempty"`
+	Source     string    `json:"source"`
+	ResolvedAt time.Time `json:"resolvedAt"`
 }
 
 // ExitIPMatch is vibe-proxy's answer to "is this exit IP consistent with the
@@ -126,4 +137,28 @@ func (c *Client) CheckExitIP(ctx context.Context, proxyID uuid.UUID, ip string, 
 		return nil, fmt.Errorf("check exit ip: %w", err)
 	}
 	return decodeResponse[ExitIPMatch](resp)
+}
+
+// ResolveIPNetwork says where an arbitrary IP is and which network it is in:
+// ASN, ISP, country, city, IANA timezone and coordinates, resolved by
+// vibe-proxy's ip-intelligence providers and cached server-side by IP.
+//
+// It is how an anti-detect consumer makes the browser agree with its exit: the
+// timezone a site derives from the exit IP must be the one the browser
+// reports. Ask for the lease's ExternalIP — the address the world sees — not
+// for the address you dial.
+//
+// A lookup no provider could answer is an *APIError with StatusCode 503
+// (after the client's own retries): transient, and never to be read as "this
+// IP has no location".
+func (c *Client) ResolveIPNetwork(ctx context.Context, ip string) (*IPNetwork, error) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return nil, fmt.Errorf("ip is required: %w", ErrInvalidInput)
+	}
+	resp, err := c.do(ctx, http.MethodGet, "/api/v1/ip-networks/"+url.PathEscape(ip), nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve ip network: %w", err)
+	}
+	return decodeResponse[IPNetwork](resp)
 }
