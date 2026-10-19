@@ -144,3 +144,67 @@ func mustUUID(t *testing.T, s string) uuid.UUID {
 	}
 	return id
 }
+
+// TestPurchaseDirect_RouteBodyDecodeNoRetry pins the direct buy route: the
+// labels reach vibe-proxy (they decide which pool the proxies land in), the
+// imported rows decode, and a 503 is not retried into a second charge.
+func TestPurchaseDirect_RouteBodyDecodeNoRetry(t *testing.T) {
+	var calls int32
+	var gotPath string
+	var gotBody PurchaseInput
+	fail := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		if fail {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"proxies":[{"id":"33333333-3333-3333-3333-333333333333","host":"1.2.3.4","countryCode":"PL","labels":{"app":"anty"}}],"count":1}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "k")
+	out, err := c.PurchaseDirect(context.Background(), PurchaseInput{
+		Vendor: "proxyline", ProxyType: "dedicated", IPVersion: 4, Country: "PL", Quantity: 1, PeriodDays: 30,
+		Labels: map[string]string{"app": "anty"},
+	})
+	if err != nil {
+		t.Fatalf("purchase: %v", err)
+	}
+	if gotPath != "/api/v1/proxies/purchase" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if gotBody.Labels["app"] != "anty" || gotBody.Country != "PL" {
+		t.Fatalf("body = %+v", gotBody)
+	}
+	if out.Count != 1 || len(out.Proxies) != 1 || out.Proxies[0].ID.String() != "33333333-3333-3333-3333-333333333333" {
+		t.Fatalf("outcome = %+v", out)
+	}
+
+	fail, calls = true, 0
+	if _, err := c.PurchaseDirect(context.Background(), PurchaseInput{Vendor: "proxyline"}); err == nil {
+		t.Fatal("expected an error from a 503")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("direct purchase hit the route %d times, want exactly 1", got)
+	}
+}
+
+func TestEstimateDirect_Route(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{"amount":1.77,"currency":"USD","quantity":1}`))
+	}))
+	defer srv.Close()
+	est, err := NewClient(srv.URL, "k").EstimateDirect(context.Background(), PurchaseInput{Vendor: "proxyline", Country: "PL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/v1/proxies/purchase/estimate" || est.Amount != 1.77 || est.Currency != "USD" {
+		t.Fatalf("path %q estimate %+v", gotPath, est)
+	}
+}

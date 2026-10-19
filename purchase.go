@@ -17,6 +17,12 @@ type PurchaseInput struct {
 	Country    string `json:"country"`
 	Quantity   int    `json:"quantity"`
 	PeriodDays int    `json:"periodDays"`
+
+	// Labels are stamped on every proxy the order imports. Pools select by
+	// label, so this is how a buyer says which pool the purchase is for: a
+	// proxy bought without them is leasable only by pools that already match
+	// the importer's own labels (provider=<vendor>). Ignored by estimates.
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // PurchaseEstimate is the pre-buy quote.
@@ -123,4 +129,37 @@ func (c *Client) ProxiesForRequest(ctx context.Context, id uuid.UUID) ([]Proxy, 
 		Labels: map[string]string{"request_id": id.String()},
 		Limit:  100,
 	})
+}
+
+// DirectPurchase is what POST /api/v1/proxies/purchase answers: the proxies
+// the order imported, already labelled. Count may be below the order's
+// quantity — vibe-proxy skips a proxy it could not import and its provider
+// sync picks it up later — but never zero: nothing importable is an error.
+type DirectPurchase struct {
+	Proxies []Proxy `json:"proxies"`
+	Count   int     `json:"count"`
+}
+
+// EstimateDirect quotes a direct order without placing it. Safe to repeat;
+// nothing is spent and nothing is recorded.
+func (c *Client) EstimateDirect(ctx context.Context, in PurchaseInput) (*PurchaseEstimate, error) {
+	resp, err := c.doOnce(ctx, http.MethodPost, "/api/v1/proxies/purchase/estimate", in)
+	if err != nil {
+		return nil, fmt.Errorf("estimate direct purchase: %w", err)
+	}
+	return decodeResponse[PurchaseEstimate](resp)
+}
+
+// PurchaseDirect buys proxies with no request behind them — a service buying
+// its own supply — and returns what was imported.
+//
+// Like PurchaseForRequest it is NOT retried: the route carries no idempotency
+// key, so a lost answer is an unknown outcome, not a failed one. A caller
+// recovers by reading the fleet for the labels it ordered with.
+func (c *Client) PurchaseDirect(ctx context.Context, in PurchaseInput) (*DirectPurchase, error) {
+	resp, err := c.doOnce(ctx, http.MethodPost, "/api/v1/proxies/purchase", in)
+	if err != nil {
+		return nil, fmt.Errorf("direct purchase: %w", err)
+	}
+	return decodeResponse[DirectPurchase](resp)
 }
