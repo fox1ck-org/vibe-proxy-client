@@ -1,10 +1,11 @@
 module github.com/fox1ck-org/vibe-proxy-client
 
-go 1.23
+go 1.24.0
 
 require (
 	github.com/cucumber/godog v0.14.1
 	github.com/google/uuid v1.6.0
+	golang.org/x/oauth2 v0.35.0
 )
 
 require (
