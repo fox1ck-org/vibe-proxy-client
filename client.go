@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -25,8 +27,12 @@ const (
 
 // Client is an HTTP client for the vibe-proxy REST API.
 type Client struct {
-	baseURL    string
-	apiKey     string
+	baseURL string
+	apiKey  string
+	// token is a service account's client-credentials token source (realm
+	// customers, vibe-proxy PROXY_SERVICE_CLIENTS); set by WithTokenSource,
+	// it replaces the shared API key.
+	token      oauth2.TokenSource
 	httpClient *http.Client
 	// slowClient carries the same transport with a longer deadline, for the
 	// handful of routes that do real work before answering.
@@ -44,6 +50,13 @@ func WithHTTPClient(c *http.Client) Option {
 		// deadline — that is the whole reason it is a separate client.
 		cl.slowClient = &http.Client{Transport: c.Transport, Timeout: cl.slowClient.Timeout}
 	}
+}
+
+// WithTokenSource authenticates every call with a Bearer from ts — a
+// service account vibe-proxy trusts (PROXY_SERVICE_CLIENTS) — instead of
+// the shared API key, which is then not sent.
+func WithTokenSource(ts oauth2.TokenSource) Option {
+	return func(cl *Client) { cl.token = ts }
 }
 
 // WithTimeout sets the HTTP client timeout.
@@ -96,8 +109,8 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (*http.R
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		if c.apiKey != "" {
-			req.Header.Set("X-API-Key", c.apiKey)
+		if err := c.authorize(req); err != nil {
+			return nil, err
 		}
 
 		resp, err := c.httpClient.Do(req)
@@ -155,10 +168,27 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body any) (*ht
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if err := c.authorize(req); err != nil {
+		return nil, err
+	}
+	return c.slowClient.Do(req)
+}
+
+// authorize sets the caller's credential: the service account's Bearer when
+// one is configured, else the API key.
+func (c *Client) authorize(req *http.Request) error {
+	if c.token != nil {
+		t, err := c.token.Token()
+		if err != nil {
+			return fmt.Errorf("service account token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+t.AccessToken)
+		return nil
+	}
 	if c.apiKey != "" {
 		req.Header.Set("X-API-Key", c.apiKey)
 	}
-	return c.slowClient.Do(req)
+	return nil
 }
 
 func decodeResponse[T any](resp *http.Response) (*T, error) {
