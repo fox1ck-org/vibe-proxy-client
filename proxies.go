@@ -375,6 +375,25 @@ type RenewProxyInput struct {
 	PeriodDays int `json:"periodDays,omitempty"`
 }
 
+// DeleteProxy removes a proxy from the fleet — the same hard delete the
+// expiration worker performs once the renewal window closes, for a caller that
+// knows sooner that nothing will use it again. vibe-proxy does not check who
+// still dials it: that is the caller's to establish. Idempotent: a proxy that
+// is already gone answers nil.
+func (c *Client) DeleteProxy(ctx context.Context, id uuid.UUID) error {
+	resp, err := c.do(ctx, http.MethodDelete, "/api/v1/proxies/"+id.String(), nil)
+	if err != nil {
+		return fmt.Errorf("delete proxy: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		if err := parseAPIError(resp); !errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("delete proxy: %w", err)
+		}
+	}
+	return nil
+}
+
 // RenewProxy extends an existing proxy's term with the provider that sold it,
 // and returns the proxy with its new expiry.
 //
